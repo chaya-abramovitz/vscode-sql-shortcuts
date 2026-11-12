@@ -1,5 +1,7 @@
-// The visual shortcut editor: a webview with the shortcut list on the left and an edit form on the right.
-// The extension passes a `host` with getItems, save, remove, openJson, importShortcuts and exportShortcuts.
+// The visual shortcut editor: a webview with the shortcut list on the left and, on the right,
+// either the edit form or the Settings page.
+// The extension passes a `host` with getItems, save, remove, openJson, importShortcuts, exportShortcuts,
+// getSettings and setSetting.
 
 const vscode = require('vscode');
 const crypto = require('crypto');
@@ -7,9 +9,10 @@ const crypto = require('crypto');
 let panel;
 let refresh;
 
-function open(context, host) {
+function open(context, host, view = 'edit') {
   if (panel) {
     panel.reveal();
+    post({ type: 'show', view });
     return;
   }
   panel = vscode.window.createWebviewPanel('sqlShortcutsEditor', 'SQL Shortcuts', vscode.ViewColumn.Active, {
@@ -22,13 +25,17 @@ function open(context, host) {
   };
   panel.webview.html = html(crypto.randomBytes(16).toString('hex'));
 
-  refresh = (select, status) => post({ type: 'data', items: host.getItems(), select, status });
+  refresh = (select, status) => post({ type: 'data', items: host.getItems(), settings: host.getSettings(), select, status });
 
   panel.webview.onDidReceiveMessage(async msg => {
     try {
       switch (msg.type) {
         case 'ready':
           refresh();
+          if (view !== 'edit') post({ type: 'show', view });
+          break;
+        case 'setSetting':
+          await host.setSetting(msg.key, msg.value); // the config change triggers a refresh
           break;
         case 'save': {
           const err = await host.save(msg.item, msg.originalPrefix);
@@ -151,6 +158,16 @@ function html(nonce) {
     background: var(--vscode-inputValidation-warningBackground, #5a4a00); border: 1px solid var(--vscode-inputValidation-warningBorder, #b89500);
   }
   .keys { opacity: .6; font-size: .85em; }
+  .side-foot button.on { text-decoration: underline; }
+  section { display: flex; flex-direction: column; gap: 8px; }
+  section > .heading { font-weight: 600; }
+  .opts { display: flex; gap: 20px; flex-wrap: wrap; }
+  .opts.col { flex-direction: column; gap: 8px; }
+  .opts .check { display: block; line-height: 1.9; padding-left: 24px; text-indent: -24px; }
+  .opts .check input { width: 16px; margin: 0 8px 0 0; vertical-align: middle; }
+  .check code { margin-left: 4px; white-space: nowrap; }
+  .sample { display: grid; grid-template-columns: 64px 1fr; gap: 10px; align-items: start; }
+  .sample .typed { font-family: var(--vscode-editor-font-family); padding-top: 10px; }
   @media (max-width: 640px) { body { flex-direction: column; } .side { width: auto; height: 40vh; border-right: none; } .row { flex-direction: column; } .row > div:first-child { width: auto; } }
 </style>
 </head>
@@ -163,13 +180,14 @@ function html(nonce) {
     <div class="count" id="count"></div>
     <ul id="list" tabindex="0" role="listbox" aria-label="Shortcuts"></ul>
     <div class="side-foot">
+      <button class="link" id="settingsLink" title="Tab/Space, keyword case, layout and more">Settings</button>
       <button class="link" id="import" title="Add shortcuts from a JSON file">Import</button>
       <button class="link" id="export" title="Save all shortcuts to a JSON file">Export</button>
       <button class="link" id="json" title="Open the shortcuts file as JSON">Edit as JSON</button>
     </div>
   </aside>
   <main>
-    <div class="form">
+    <div class="form" id="editView">
       <h1 id="titleWrap"><span id="title">New shortcut</span><span class="dot" title="Unsaved changes"></span></h1>
 
       <div class="confirm" id="confirm" hidden>
@@ -224,6 +242,52 @@ function html(nonce) {
       </div>
       <div class="keys">Ctrl+S save · Ctrl+N new · Ctrl+F search · ↑ ↓ move through the list</div>
     </div>
+
+    <div class="form" id="settingsView" hidden>
+      <h1>Settings</h1>
+
+      <section>
+        <div class="heading">Expand a shortcut when I press</div>
+        <div class="opts">
+          <label class="check"><input type="checkbox" data-key="expandOnTab"> Tab</label>
+          <label class="check"><input type="checkbox" data-key="expandOnSpace"> Space</label>
+        </div>
+        <div class="warn" id="trigWarn" hidden>Neither is on, so typing a shortcut does nothing. You can still right-click → Insert Shortcut…</div>
+      </section>
+
+      <section>
+        <div class="heading">Keyword case</div>
+        <div class="opts col">
+          <label class="check"><input type="radio" name="keywordCase" value="upper"> UPPERCASE <code>SELECT * FROM</code></label>
+          <label class="check"><input type="radio" name="keywordCase" value="lower"> lowercase <code>select * from</code></label>
+          <label class="check"><input type="radio" name="keywordCase" value="match"> Match how I type the shortcut: <code>SSF</code> → <code>SELECT</code>, <code>ssf</code> → <code>select</code></label>
+        </div>
+      </section>
+
+      <section>
+        <div class="heading">Layout</div>
+        <div class="opts col">
+          <label class="check"><input type="radio" name="layout" value="multiLine"> Each clause on its own line</label>
+          <label class="check"><input type="radio" name="layout" value="compact"> Short queries on one line</label>
+        </div>
+      </section>
+
+      <section>
+        <div class="heading">Other</div>
+        <div class="opts col">
+          <label class="check"><input type="checkbox" data-key="semicolons"> End statements with a semicolon <code>;</code></label>
+          <label class="check"><input type="checkbox" data-key="showInSuggestions"> Show shortcuts in VS Code's suggestion pop-up</label>
+          <label class="check"><input type="checkbox" data-key="showStatusBar"> Show the Shortcuts button in the status bar</label>
+        </div>
+      </section>
+
+      <section>
+        <div class="heading">Preview</div>
+        <div id="samples"></div>
+      </section>
+
+      <div class="hint">Changes apply right away. They're also in VS Code's Settings under "SQL Shortcuts".</div>
+    </div>
   </main>
 
 <script nonce="${nonce}">
@@ -262,8 +326,8 @@ function html(nonce) {
     if (active) active.scrollIntoView({ block: 'nearest' });
   }
 
-  function renderPreview() {
-    const t = $('text').value;
+  // Shows {} spots, {text} spots and {cursor} from the editor syntax as highlighted HTML.
+  function previewHtml(t) {
     let out = '', last = 0, m;
     const re = /\\{([^{}\\n]*)\\}/g;
     while ((m = re.exec(t))) {
@@ -274,9 +338,37 @@ function html(nonce) {
       else if (tok === '' || /^[1-9]\\d*$/.test(tok)) out += '<span class="ph empty" title="Empty spot to fill in">' + esc(tok) + '</span>';
       else out += '<span class="ph">' + esc(tok) + '</span>';
     }
-    out += esc(t.slice(last));
-    $('preview').innerHTML = out || '<span style="opacity:.5">Type what the shortcut expands to.</span>';
+    return out + esc(t.slice(last));
   }
+
+  function renderPreview() {
+    $('preview').innerHTML = previewHtml($('text').value) || '<span style="opacity:.5">Type what the shortcut expands to.</span>';
+  }
+
+  // ----- Settings page -----
+  let view = 'edit';
+
+  function showView(name) {
+    view = name;
+    $('editView').hidden = name !== 'edit';
+    $('settingsView').hidden = name !== 'settings';
+    $('settingsLink').classList.toggle('on', name === 'settings');
+  }
+
+  function renderSettings(s) {
+    if (!s) return;
+    document.querySelectorAll('#settingsView [data-key]').forEach(el => { el.checked = !!s.values[el.dataset.key]; });
+    document.querySelectorAll('#settingsView input[type=radio]').forEach(el => { el.checked = s.values[el.name] === el.value; });
+    $('trigWarn').hidden = s.values.expandOnTab || s.values.expandOnSpace;
+    $('samples').innerHTML = s.samples.map(x =>
+      '<div class="sample"><span class="typed">' + esc(x.typed) + ' →</span><div class="preview">' + previewHtml(x.text) + '</div></div>').join('');
+  }
+
+  document.querySelectorAll('#settingsView input').forEach(el => el.addEventListener('change', () => {
+    if (el.type === 'radio') vscode.postMessage({ type: 'setSetting', key: el.name, value: el.value });
+    else vscode.postMessage({ type: 'setSetting', key: el.dataset.key, value: el.checked });
+  }));
+  $('settingsLink').addEventListener('click', () => showView(view === 'settings' ? 'edit' : 'settings'));
 
   function renderState() {
     const dirty = isDirty();
@@ -341,7 +433,7 @@ function html(nonce) {
     return true;
   }
 
-  function newShortcut() { guard(() => { load(null); $('prefix').focus(); }); }
+  function newShortcut() { guard(() => { load(null); showView('edit'); $('prefix').focus(); }); }
 
   function moveSelection(delta) {
     const list = shown();
@@ -358,7 +450,9 @@ function html(nonce) {
   // ----- events -----
   $('list').addEventListener('click', e => {
     const li = e.target.closest('li');
-    if (li && li.dataset.p !== current) guard(() => load(items.find(i => i.prefix === li.dataset.p)));
+    if (!li) return;
+    if (li.dataset.p === current) showView('edit');
+    else guard(() => { load(items.find(i => i.prefix === li.dataset.p)); showView('edit'); });
   });
   $('list').addEventListener('keydown', arrowKeys);
   $('search').addEventListener('input', e => { filter = e.target.value; renderList(); });
@@ -412,8 +506,11 @@ function html(nonce) {
 
   window.addEventListener('message', e => {
     const msg = e.data;
-    if (msg.type === 'data') {
+    if (msg.type === 'show') {
+      showView(msg.view);
+    } else if (msg.type === 'data') {
       items = msg.items;
+      renderSettings(msg.settings);
       if (msg.select !== undefined) {
         // reply to our own save or delete
         load(items.find(i => i.prefix === msg.select) || items[0] || null);

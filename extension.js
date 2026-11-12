@@ -7,6 +7,46 @@ const fs = require('fs');
 const path = require('path');
 const editorPanel = require('./editorPanel');
 const { toFriendly, toSnippet } = require('./convert');
+const { formatBody } = require('./format');
+
+// ---------- Settings ----------
+
+const SETTING_DEFAULTS = {
+  expandOnTab: true,
+  expandOnSpace: true,
+  keywordCase: 'upper',
+  layout: 'multiLine',
+  semicolons: true,
+  showInSuggestions: true,
+  showStatusBar: true
+};
+
+function setting(key) {
+  return vscode.workspace.getConfiguration('sqlShortcuts').get(key, SETTING_DEFAULTS[key]);
+}
+
+// The shortcut's body with the user's keyword case, layout and semicolon settings applied.
+function styled(body, typed) {
+  return formatBody(body, { keywordCase: setting('keywordCase'), layout: setting('layout'), semicolons: setting('semicolons') }, typed);
+}
+
+// Current settings plus example expansions, for the Settings page in the editor.
+function getSettings() {
+  const values = {};
+  for (const key of Object.keys(SETTING_DEFAULTS)) values[key] = setting(key);
+  const sample = (prefix, typed) => {
+    const s = shortcuts.get(prefix);
+    return s ? { typed, text: toFriendly(styled(s.body, typed)) } : null;
+  };
+  const samples = [sample('ssf', 'ssf'), sample('up', 'up')];
+  if (values.keywordCase === 'match') samples.splice(1, 0, sample('ssf', 'SSF'));
+  return { values, samples: samples.filter(Boolean) };
+}
+
+async function setSetting(key, value) {
+  if (!(key in SETTING_DEFAULTS)) return;
+  await vscode.workspace.getConfiguration('sqlShortcuts').update(key, value, vscode.ConfigurationTarget.Global);
+}
 
 const LANGS = ['sql', 'mssql'];
 
@@ -294,7 +334,7 @@ async function expand(args) {
   const trigger = (args && args.trigger) || 'tab';
   const ed = vscode.window.activeTextEditor;
   if (!ed || ed.selections.length !== 1 || !ed.selection.isEmpty) return fallback(trigger);
-  if (trigger === 'space' && !vscode.workspace.getConfiguration('sqlShortcuts').get('expandOnSpace', true)) return fallback(trigger);
+  if (!setting(trigger === 'space' ? 'expandOnSpace' : 'expandOnTab')) return fallback(trigger);
 
   const pos = ed.selection.active;
   const before = ed.document.lineAt(pos.line).text.slice(0, pos.character);
@@ -312,7 +352,7 @@ async function expand(args) {
   }
 
   await vscode.commands.executeCommand('hideSuggestWidget');
-  await ed.insertSnippet(new vscode.SnippetString(s.body), new vscode.Range(pos.translate(0, -word.length), pos));
+  await ed.insertSnippet(new vscode.SnippetString(styled(s.body, word)), new vscode.Range(pos.translate(0, -word.length), pos));
 }
 
 // Pick a shortcut from a searchable list and insert it at the cursor.
@@ -330,16 +370,20 @@ async function insertShortcut() {
   }));
   const pick = await vscode.window.showQuickPick(items, { title: 'Insert SQL shortcut', placeHolder: 'Type to search by shortcut, description or SQL', matchOnDescription: true, matchOnDetail: true });
   if (!pick) return;
-  await ed.insertSnippet(new vscode.SnippetString(shortcuts.get(pick.prefix.toLowerCase()).body));
+  await ed.insertSnippet(new vscode.SnippetString(styled(shortcuts.get(pick.prefix.toLowerCase()).body)));
 }
 
 // Also lists the shortcuts in VS Code's suggestion list.
 const completionProvider = {
-  provideCompletionItems() {
+  provideCompletionItems(document, position) {
+    if (!setting('showInSuggestions')) return [];
+    const range = document.getWordRangeAtPosition(position);
+    const typed = range ? document.getText(range) : '';
     return [...shortcuts.values()].map(s => {
+      const body = styled(s.body, typed);
       const item = new vscode.CompletionItem({ label: s.prefix, description: s.description }, vscode.CompletionItemKind.Snippet);
-      item.insertText = new vscode.SnippetString(s.body);
-      item.documentation = new vscode.MarkdownString().appendCodeblock(toFriendly(s.body).replace(/\{cursor\}/g, ''), 'sql');
+      item.insertText = new vscode.SnippetString(body);
+      item.documentation = new vscode.MarkdownString().appendCodeblock(toFriendly(body).replace(/\{(cursor|\d*)\}/g, ''), 'sql');
       item.sortText = '0' + s.prefix;
       return item;
     });
@@ -367,12 +411,12 @@ function activate(context) {
   statusItem.command = 'sqlShortcuts.edit';
   const updateStatus = () => {
     const ed = vscode.window.activeTextEditor;
-    if (ed && LANGS.includes(ed.document.languageId)) statusItem.show();
+    if (ed && LANGS.includes(ed.document.languageId) && setting('showStatusBar')) statusItem.show();
     else statusItem.hide();
   };
   updateStatus();
 
-  const panelHost = { getItems, save: saveItem, remove: removeItem, openJson, importShortcuts, exportShortcuts };
+  const panelHost = { getItems, save: saveItem, remove: removeItem, openJson, importShortcuts, exportShortcuts, getSettings, setSetting };
 
   context.subscriptions.push(
     statusItem,
@@ -383,6 +427,10 @@ function activate(context) {
     vscode.commands.registerCommand('sqlShortcuts.edit', () => {
       ensureFile(context);
       editorPanel.open(context, panelHost);
+    }),
+    vscode.commands.registerCommand('sqlShortcuts.settings', () => {
+      ensureFile(context);
+      editorPanel.open(context, panelHost, 'settings');
     }),
     vscode.commands.registerCommand('sqlShortcuts.insert', insertShortcut),
     vscode.commands.registerCommand('sqlShortcuts.editJson', () => {
@@ -399,7 +447,10 @@ function activate(context) {
     }),
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('sqlShortcuts.shortcutsFile')) init(context);
-      else if (e.affectsConfiguration('sqlShortcuts.spaceExcludes')) editorPanel.refreshIfOpen();
+      else if (e.affectsConfiguration('sqlShortcuts')) {
+        updateStatus();
+        editorPanel.refreshIfOpen();
+      }
     }),
 
     vscode.languages.registerCompletionItemProvider(LANGS.map(language => ({ language })), completionProvider)

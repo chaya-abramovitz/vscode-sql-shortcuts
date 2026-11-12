@@ -223,11 +223,18 @@ Click **Shortcuts** in the status bar at the bottom of VS Code, or the key icon 
 
 ## Settings
 
-| Setting | Default | What it does |
+In the shortcut editor, click **Settings** (bottom left), or run **SQL Shortcuts: Settings** from the Command Palette. Changes apply right away, and a preview shows how `ssf` and `up` will expand.
+
+| Setting | Choices | Default |
 |---|---|---|
-| `sqlShortcuts.expandOnSpace` | on | Expand on Space as well as Tab |
-| `sqlShortcuts.spaceExcludes` | `is go use …` | Shortcuts that expand only on Tab |
-| `sqlShortcuts.shortcutsFile` | *(empty)* | Keep your shortcuts file somewhere else, e.g. OneDrive |
+| Expand when I press | Tab, Space, or both | both |
+| Keyword case | `SELECT` (UPPERCASE), `select` (lowercase), or match how you typed the shortcut (`SSF` → `SELECT`, `ssf` → `select`) | UPPERCASE |
+| Layout | each clause on its own line, or short queries on one line (`SELECT * FROM`) | own line |
+| Semicolons | end statements with `;` or not (MERGE and THROW always keep theirs) | on |
+| Suggestion pop-up | also list shortcuts in VS Code's suggestions | on |
+| Status bar button | show **Shortcuts** at the bottom while a SQL file is open | on |
+
+Two more are only in VS Code's Settings (search "SQL Shortcuts"): `sqlShortcuts.spaceExcludes` (shortcuts that expand only on Tab; easier to change with each shortcut's checkbox) and `sqlShortcuts.shortcutsFile` (keep your shortcuts file somewhere else, e.g. OneDrive).
 
 ## Build from source
 

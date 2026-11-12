@@ -2,7 +2,7 @@
   "name": "sql-shortcuts",
   "displayName": "SQL Shortcuts",
   "description": "T-SQL shortcuts for VS Code: type ssf and press Tab or Space to get SELECT * FROM. 120+ shortcuts, editable in a visual editor.",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "publisher": "chaya-local",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -71,6 +71,11 @@
         "command": "sqlShortcuts.expand",
         "title": "Expand Shortcut",
         "category": "SQL Shortcuts"
+      },
+      {
+        "command": "sqlShortcuts.settings",
+        "title": "Settings",
+        "category": "SQL Shortcuts"
       }
     ],
     "menus": {
@@ -124,10 +129,65 @@
     "configuration": {
       "title": "SQL Shortcuts",
       "properties": {
+        "sqlShortcuts.expandOnTab": {
+          "type": "boolean",
+          "default": true,
+          "order": 1,
+          "description": "Expand a shortcut when you press Tab after it."
+        },
         "sqlShortcuts.expandOnSpace": {
           "type": "boolean",
           "default": true,
-          "description": "Expand a shortcut when you press Space after it, as well as Tab."
+          "order": 2,
+          "description": "Expand a shortcut when you press Space after it."
+        },
+        "sqlShortcuts.keywordCase": {
+          "type": "string",
+          "enum": [
+            "upper",
+            "lower",
+            "match"
+          ],
+          "enumDescriptions": [
+            "SELECT * FROM",
+            "select * from",
+            "Follow how you typed the shortcut: SSF gives SELECT, ssf gives select"
+          ],
+          "default": "upper",
+          "order": 3,
+          "description": "Upper or lower case for SQL keywords in expanded shortcuts."
+        },
+        "sqlShortcuts.layout": {
+          "type": "string",
+          "enum": [
+            "multiLine",
+            "compact"
+          ],
+          "enumDescriptions": [
+            "Each clause on its own line: SELECT * / FROM",
+            "Short queries on one line: SELECT * FROM"
+          ],
+          "default": "multiLine",
+          "order": 4,
+          "description": "How expanded queries are laid out."
+        },
+        "sqlShortcuts.semicolons": {
+          "type": "boolean",
+          "default": true,
+          "order": 5,
+          "description": "End statements with a semicolon (;). MERGE and THROW always keep theirs."
+        },
+        "sqlShortcuts.showInSuggestions": {
+          "type": "boolean",
+          "default": true,
+          "order": 6,
+          "description": "Also list shortcuts in VS Code's suggestion pop-up."
+        },
+        "sqlShortcuts.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "order": 7,
+          "description": "Show the Shortcuts button in the status bar while a SQL file is open."
         },
         "sqlShortcuts.spaceExcludes": {
           "type": "array",
@@ -147,12 +207,14 @@
             "pk",
             "fk"
           ],
-          "description": "Shortcuts that expand only on Tab, because they are also common SQL words or aliases. Easier to change with the checkbox in Edit Shortcuts."
+          "description": "Shortcuts that expand only on Tab, because they are also common SQL words or aliases. Easier to change with the checkbox in Edit Shortcuts.",
+          "order": 8
         },
         "sqlShortcuts.shortcutsFile": {
           "type": "string",
           "default": "",
-          "description": "Full path to your shortcuts file, e.g. to keep it in OneDrive. Leave empty to use the default location."
+          "description": "Full path to your shortcuts file, e.g. to keep it in OneDrive. Leave empty to use the default location.",
+          "order": 9
         }
       }
     }
