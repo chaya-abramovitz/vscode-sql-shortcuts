@@ -24,7 +24,7 @@ The cursor (`|`) lands right where you type next, with nothing to delete. When a
 
 ## Shortcuts
 
-Shortcuts work in upper or lower case. A few that are also everyday SQL words (`is go use at ex rn cte ct dt pk fk`) expand only on Tab, not Space.
+Shortcuts work in upper or lower case. A few that are also everyday SQL words (`is go use at ex rn cte ct dt pk fk j`) expand only on Tab, not Space.
 
 Can't remember one? Right-click in a SQL file → **Insert Shortcut…** and search.
 
@@ -64,6 +64,7 @@ Can't remember one? Right-click in a SQL file → **Insert Shortcut…** and sea
 
 | Shortcut | Gives you |
 |---|---|
+| `j` | JOIN ... ON |
 | `ij` | INNER JOIN ... ON |
 | `lj` | LEFT JOIN ... ON |
 | `rj` | RIGHT JOIN ... ON |
@@ -223,7 +224,7 @@ Click **Shortcuts** in the status bar at the bottom of VS Code, or the key icon 
 
 ## Settings
 
-In the shortcut editor, click **Settings** (bottom left), or run **SQL Shortcuts: Settings** from the Command Palette. Changes apply right away, and a preview shows how `ssf` and `up` will expand.
+In the shortcut editor, click the **gear** next to **+ New**, or run **SQL Shortcuts: Settings** from the Command Palette. Changes apply right away, and a preview shows how `ssf` and `up` will expand.
 
 | Setting | Choices | Default |
 |---|---|---|

@@ -20,6 +20,7 @@
   "wnn": { "prefix": "wnn", "description": "WHERE ... IS NOT NULL", "body": "WHERE $1 IS NOT NULL$0" },
   "exs": { "prefix": "exs", "description": "EXISTS (SELECT 1 FROM ...)", "body": ["EXISTS (", "\tSELECT 1", "\tFROM $1", "\tWHERE $0", ")"] },
   "nexs": { "prefix": "nexs", "description": "NOT EXISTS (SELECT 1 FROM ...)", "body": ["NOT EXISTS (", "\tSELECT 1", "\tFROM $1", "\tWHERE $0", ")"] },
+  "j": { "prefix": "j", "description": "JOIN ... ON", "body": "JOIN $1 ON $0" },
   "ij": { "prefix": "ij", "description": "INNER JOIN ... ON", "body": "INNER JOIN $1 ON $0" },
   "lj": { "prefix": "lj", "description": "LEFT JOIN ... ON", "body": "LEFT JOIN $1 ON $0" },
   "rj": { "prefix": "rj", "description": "RIGHT JOIN ... ON", "body": "RIGHT JOIN $1 ON $0" },

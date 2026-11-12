@@ -282,8 +282,8 @@ async function restoreDefaults(context) {
 
 // When the bundled defaults change, update the user's file: replace entries the user never edited
 // and add shortcuts that are new. Entries the user changed or deleted are left alone.
-const DEFAULTS_VERSION = 2;
-const PREVIOUS_DEFAULTS = { 1: 'defaults-v1.json' };
+const DEFAULTS_VERSION = 3;
+const PREVIOUS_DEFAULTS = { 1: 'defaults-v1.json', 2: 'defaults-v2.json' };
 
 function upgradeDefaults(context) {
   const from = context.globalState.get('defaultsVersion', 1);
@@ -295,18 +295,25 @@ function upgradeDefaults(context) {
   const fresh = readJsonFile(defaultsPath(context));
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const json = { ...rawJson };
-  let updated = 0, added = 0;
+  let updated = 0;
+  const added = [];
   for (const [key, entry] of Object.entries(fresh)) {
     if (key in json) {
       if (old[key] && same(json[key], old[key]) && !same(json[key], entry)) { json[key] = entry; updated++; }
     } else if (!(key in old) && !shortcuts.has(String(entry.prefix).toLowerCase())) {
-      json[key] = entry; added++;
+      json[key] = entry; added.push(entry.prefix);
     }
   }
-  if (!updated && !added) return;
+  if (!updated && !added.length) return;
   writeFile(json);
+  const parts = [];
+  if (added.length) {
+    const names = added.length <= 5 ? ': ' + added.join(', ') : '';
+    parts.push(`${added.length} new ${added.length === 1 ? 'shortcut' : 'shortcuts'} added${names}`);
+  }
+  if (updated) parts.push(`${updated} ${updated === 1 ? 'shortcut' : 'shortcuts'} updated to the new style`);
   vscode.window
-    .showInformationMessage(`SQL Shortcuts updated: ${updated} shortcuts now put each clause on its own line with no placeholder words, and ${added} new shortcuts were added. Shortcuts you changed were kept.`, 'See all shortcuts')
+    .showInformationMessage(`SQL Shortcuts: ${parts.join('; ')}. Shortcuts you changed were kept.`, 'See all shortcuts')
     .then(pick => pick && vscode.commands.executeCommand('sqlShortcuts.edit'));
 }
 

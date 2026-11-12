@@ -158,7 +158,8 @@ function html(nonce) {
     background: var(--vscode-inputValidation-warningBackground, #5a4a00); border: 1px solid var(--vscode-inputValidation-warningBorder, #b89500);
   }
   .keys { opacity: .6; font-size: .85em; }
-  .side-foot button.on { text-decoration: underline; }
+  .iconbtn { display: flex; align-items: center; justify-content: center; padding: 5px 8px; }
+  .iconbtn.on { background: var(--vscode-button-secondaryHoverBackground, #45494e); outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
   section { display: flex; flex-direction: column; gap: 8px; }
   section > .heading { font-weight: 600; }
   .opts { display: flex; gap: 20px; flex-wrap: wrap; }
@@ -176,11 +177,11 @@ function html(nonce) {
     <div class="side-head">
       <input id="search" placeholder="Search (Ctrl+F)" aria-label="Search shortcuts">
       <button id="new" title="Add a shortcut (Ctrl+N)">+ New</button>
+      <button class="secondary iconbtn" id="settingsLink" title="Settings" aria-label="Settings" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
     </div>
     <div class="count" id="count"></div>
     <ul id="list" tabindex="0" role="listbox" aria-label="Shortcuts"></ul>
     <div class="side-foot">
-      <button class="link" id="settingsLink" title="Tab/Space, keyword case, layout and more">Settings</button>
       <button class="link" id="import" title="Add shortcuts from a JSON file">Import</button>
       <button class="link" id="export" title="Save all shortcuts to a JSON file">Export</button>
       <button class="link" id="json" title="Open the shortcuts file as JSON">Edit as JSON</button>
@@ -295,7 +296,7 @@ function html(nonce) {
   const $ = id => document.getElementById(id);
 
   // Words often typed in SQL as keywords or aliases; expanding them on Space would get in the way.
-  const SQL_WORDS = new Set(['a','b','c','t','x','id','t1','t2','as','at','by','go','if','in','is','of','on','or','to','add','all','and','any','asc','end','for','key','not','set','top','use','case','date','desc','drop','else','exec','from','into','join','left','like','name','null','over','then','type','when','with','cte','rn','dt','ct','ex','pk','fk']);
+  const SQL_WORDS = new Set(['a','b','c','j','t','x','id','t1','t2','as','at','by','go','if','in','is','of','on','or','to','add','all','and','any','asc','end','for','key','not','set','top','use','case','date','desc','drop','else','exec','from','into','join','left','like','name','null','over','then','type','when','with','cte','rn','dt','ct','ex','pk','fk']);
 
   let items = [];
   let current = null;    // prefix of the shortcut being edited; null for a new one
@@ -353,6 +354,8 @@ function html(nonce) {
     $('editView').hidden = name !== 'edit';
     $('settingsView').hidden = name !== 'settings';
     $('settingsLink').classList.toggle('on', name === 'settings');
+    $('settingsLink').setAttribute('aria-pressed', String(name === 'settings'));
+    $('settingsLink').title = name === 'settings' ? 'Back to shortcuts' : 'Settings';
   }
 
   function renderSettings(s) {
