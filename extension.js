@@ -1,3 +1,7 @@
+// SQL Shortcuts: type an abbreviation in a SQL file (e.g. "ssf") and press Tab or Space
+// to expand it (e.g. "SELECT * FROM table"). Shortcuts are stored in a JSON file in
+// VS Code's snippet format and edited through the visual editor in editorPanel.js.
+
 const vscode = require('vscode');
 const fs = require('fs');
 const path = require('path');
@@ -5,12 +9,14 @@ const editorPanel = require('./editorPanel');
 const { toFriendly, toSnippet } = require('./convert');
 
 const LANGS = ['sql', 'mssql'];
-let shortcuts = new Map(); // prefix -> { body, description }
-let rawJson = {};          // the file's entries, in file order
+
+let shortcuts = new Map(); // lowercase prefix -> { prefix, body, description }
+let rawJson = {};          // the file's entries as stored, in file order
 let filePath = '';
 let watcher;
+let statusItem;
 
-// ---------- the shortcuts file ----------
+// ---------- Shortcuts file ----------
 
 function defaultsPath(context) {
   return path.join(context.extensionPath, 'snippets', 'tsql.json');
@@ -18,8 +24,7 @@ function defaultsPath(context) {
 
 function resolveFilePath(context) {
   const custom = vscode.workspace.getConfiguration('sqlShortcuts').get('shortcutsFile', '').trim();
-  if (custom) return custom;
-  return path.join(context.globalStorageUri.fsPath, 'shortcuts.json');
+  return custom || path.join(context.globalStorageUri.fsPath, 'shortcuts.json');
 }
 
 function ensureFile(context) {
@@ -28,80 +33,114 @@ function ensureFile(context) {
   fs.copyFileSync(defaultsPath(context), filePath);
 }
 
-function load(showMessage) {
+// Reads a snippet-format JSON file. Tolerates a BOM, // comment lines and trailing commas.
+function readJsonFile(file) {
+  const text = fs.readFileSync(file, 'utf8')
+    .replace(/^﻿/, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+    .replace(/,(\s*[}\]])/g, '$1');
+  const json = JSON.parse(text);
+  if (!json || typeof json !== 'object' || Array.isArray(json)) throw new Error('expected an object of shortcuts');
+  return json;
+}
+
+// Flattens file entries into { prefix, body, description } (an entry may list several prefixes).
+function entriesOf(json) {
+  const out = [];
+  for (const [name, s] of Object.entries(json)) {
+    if (!s || !s.body) continue;
+    const prefixes = Array.isArray(s.prefix) ? s.prefix : [s.prefix || name];
+    const body = Array.isArray(s.body) ? s.body.join('\n') : String(s.body);
+    for (const p of prefixes) out.push({ key: name, prefix: String(p), body, description: s.description || String(p) });
+  }
+  return out;
+}
+
+function load() {
   let json;
   try {
-    // allow // comments and trailing commas like VS Code's own snippet files
-    const text = fs.readFileSync(filePath, 'utf8')
-      .replace(/^﻿/, '')
-      .replace(/^\s*\/\/.*$/gm, '')
-      .replace(/,(\s*[}\]])/g, '$1');
-    json = JSON.parse(text);
+    json = readJsonFile(filePath);
   } catch (err) {
     vscode.window.showErrorMessage(`SQL Shortcuts: couldn't read ${path.basename(filePath)} (${err.message}). Keeping the previous shortcuts.`);
     return;
   }
   const next = new Map();
-  for (const [name, s] of Object.entries(json)) {
-    if (!s || !s.body) continue;
-    const prefixes = Array.isArray(s.prefix) ? s.prefix : [s.prefix || name];
-    const body = Array.isArray(s.body) ? s.body.join('\n') : String(s.body);
-    for (const p of prefixes) next.set(String(p), { body, description: s.description || name });
-  }
+  for (const e of entriesOf(json)) next.set(e.prefix.toLowerCase(), e);
   shortcuts = next;
   rawJson = json;
+  if (statusItem) statusItem.tooltip = `SQL Shortcuts: ${shortcuts.size} shortcuts. Click to add, edit or remove.`;
   editorPanel.refreshIfOpen();
-  if (showMessage) vscode.window.setStatusBarMessage(`SQL Shortcuts: ${shortcuts.size} shortcuts loaded`, 3000);
 }
-
-// ---------- used by the visual editor ----------
 
 function writeFile(json) {
   fs.writeFileSync(filePath, JSON.stringify(json, null, 2) + '\n', 'utf8');
-  load(false);
+  load();
+}
+
+function watch(context) {
+  if (watcher) watcher.dispose();
+  watcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(vscode.Uri.file(path.dirname(filePath)), path.basename(filePath))
+  );
+  watcher.onDidChange(load);
+  watcher.onDidCreate(load);
+  context.subscriptions.push(watcher);
+}
+
+function init(context) {
+  filePath = resolveFilePath(context);
+  ensureFile(context);
+  load();
+  watch(context);
+}
+
+// ---------- Editing (used by the visual editor and commands) ----------
+
+function spaceExcludes() {
+  return vscode.workspace.getConfiguration('sqlShortcuts').get('spaceExcludes', []).map(p => p.toLowerCase());
 }
 
 function getItems() {
-  const excludes = vscode.workspace.getConfiguration('sqlShortcuts').get('spaceExcludes', []);
-  const items = [];
-  for (const [prefix, s] of shortcuts) {
-    items.push({ prefix, description: s.description, text: toFriendly(s.body), space: !excludes.includes(prefix) });
-  }
-  return items.sort((a, b) => a.prefix.localeCompare(b.prefix));
+  const excludes = spaceExcludes();
+  return [...shortcuts.values()]
+    .map(s => ({ prefix: s.prefix, description: s.description, text: toFriendly(s.body), space: !excludes.includes(s.prefix.toLowerCase()) }))
+    .sort((a, b) => a.prefix.localeCompare(b.prefix));
 }
 
 async function setSpace(prefix, space, oldPrefix) {
   const cfg = vscode.workspace.getConfiguration('sqlShortcuts');
-  let list = cfg.get('spaceExcludes', []).filter(p => p !== prefix && p !== oldPrefix);
-  if (!space) list.push(prefix);
   const before = cfg.get('spaceExcludes', []);
+  const drop = [prefix, oldPrefix].filter(Boolean).map(p => p.toLowerCase());
+  const list = before.filter(p => !drop.includes(p.toLowerCase()));
+  if (!space) list.push(prefix);
   if (JSON.stringify([...before].sort()) !== JSON.stringify([...list].sort())) {
     await cfg.update('spaceExcludes', list, vscode.ConfigurationTarget.Global);
   }
 }
 
-// key in the file for a given prefix (entries may be named differently from their prefix)
 function keyFor(prefix) {
-  return Object.keys(rawJson).find(k => {
-    const p = rawJson[k] && (rawJson[k].prefix || k);
-    return Array.isArray(p) ? p.includes(prefix) : p === prefix;
-  });
+  const s = shortcuts.get(prefix.toLowerCase());
+  return s && s.key;
 }
 
-async function saveItem(item, originalPrefix) {
+function toEntry(item) {
   const body = toSnippet(item.text.replace(/\r\n/g, '\n'));
-  const entry = { prefix: item.prefix, description: item.description || item.prefix, body: body.includes('\n') ? body.split('\n') : body };
-  const json = {};
+  return { prefix: item.prefix, description: item.description || item.prefix, body: body.includes('\n') ? body.split('\n') : body };
+}
+
+// Returns an error message, or null on success.
+async function saveItem(item, originalPrefix) {
+  const renamed = !originalPrefix || originalPrefix.toLowerCase() !== item.prefix.toLowerCase();
+  if (renamed && shortcuts.has(item.prefix.toLowerCase())) return `"${item.prefix}" already exists.`;
+
   const oldKey = originalPrefix ? keyFor(originalPrefix) : undefined;
-  if (!originalPrefix || originalPrefix !== item.prefix) {
-    if (shortcuts.has(item.prefix)) return `"${item.prefix}" already exists.`;
-  }
-  // keep the file's order; replace in place when editing, append when new
+  const json = {};
+  // keep the file's order: replace in place when editing, append when new
   for (const [k, v] of Object.entries(rawJson)) {
-    if (k === oldKey) json[item.prefix] = entry;
+    if (k === oldKey) json[item.prefix] = toEntry(item);
     else if (k !== item.prefix) json[k] = v;
   }
-  if (!oldKey) json[item.prefix] = entry;
+  if (!oldKey) json[item.prefix] = toEntry(item);
   writeFile(json);
   await setSpace(item.prefix, item.space, originalPrefix);
   return null;
@@ -121,26 +160,86 @@ async function openJson() {
   await vscode.window.showTextDocument(doc);
 }
 
-function watch(context) {
-  if (watcher) watcher.dispose();
-  watcher = vscode.workspace.createFileSystemWatcher(
-    new vscode.RelativePattern(vscode.Uri.file(path.dirname(filePath)), path.basename(filePath))
-  );
-  watcher.onDidChange(() => load(true));
-  watcher.onDidCreate(() => load(true));
-  context.subscriptions.push(watcher);
+// Adds entries from another file. Asks what to do when a shortcut already exists.
+async function mergeIn(incoming, sourceName) {
+  const fresh = entriesOf(incoming);
+  if (!fresh.length) {
+    vscode.window.showWarningMessage(`SQL Shortcuts: no shortcuts found in ${sourceName}.`);
+    return;
+  }
+  const clashes = fresh.filter(e => shortcuts.has(e.prefix.toLowerCase()));
+  let replace = false;
+  if (clashes.length) {
+    const names = clashes.slice(0, 8).map(e => e.prefix).join(', ') + (clashes.length > 8 ? ', …' : '');
+    const pick = await vscode.window.showWarningMessage(
+      `${clashes.length} of these shortcuts already exist (${names}).`, { modal: true }, 'Replace mine', 'Keep mine');
+    if (!pick) return;
+    replace = pick === 'Replace mine';
+  }
+  const json = { ...rawJson };
+  let added = 0, replaced = 0;
+  for (const e of fresh) {
+    const existingKey = keyFor(e.prefix);
+    if (existingKey && !replace) continue;
+    if (existingKey) { delete json[existingKey]; replaced++; } else added++;
+    json[e.prefix] = { prefix: e.prefix, description: e.description, body: e.body.includes('\n') ? e.body.split('\n') : e.body };
+  }
+  writeFile(json);
+  vscode.window.showInformationMessage(`SQL Shortcuts: added ${added}${replaced ? `, replaced ${replaced}` : ''}.`);
 }
 
-function init(context) {
-  filePath = resolveFilePath(context);
-  ensureFile(context);
-  load(false);
-  watch(context);
+async function importShortcuts() {
+  const picked = await vscode.window.showOpenDialog({ canSelectMany: false, filters: { 'Shortcuts (JSON)': ['json', 'code-snippets'] }, title: 'Import SQL shortcuts' });
+  if (!picked) return;
+  let json;
+  try {
+    json = readJsonFile(picked[0].fsPath);
+  } catch (err) {
+    vscode.window.showErrorMessage(`SQL Shortcuts: couldn't read that file (${err.message}).`);
+    return;
+  }
+  await mergeIn(json, path.basename(picked[0].fsPath));
 }
 
-// ---------- expanding ----------
+async function exportShortcuts() {
+  const target = await vscode.window.showSaveDialog({
+    defaultUri: vscode.Uri.file(path.join(require('os').homedir(), 'sql-shortcuts.json')),
+    filters: { 'Shortcuts (JSON)': ['json'] },
+    title: 'Export SQL shortcuts'
+  });
+  if (!target) return;
+  fs.writeFileSync(target.fsPath, JSON.stringify(rawJson, null, 2) + '\n', 'utf8');
+  vscode.window.showInformationMessage(`SQL Shortcuts: exported ${shortcuts.size} shortcuts to ${path.basename(target.fsPath)}.`);
+}
 
-// Rough check: is the cursor inside a '--' comment or an open 'string'?
+async function restoreDefaults(context) {
+  const defaults = readJsonFile(defaultsPath(context));
+  const missing = entriesOf(defaults).filter(e => !shortcuts.has(e.prefix.toLowerCase()));
+  const pick = await vscode.window.showQuickPick([
+    { label: 'Add back missing default shortcuts', description: missing.length ? `${missing.length} missing` : 'none missing', id: 'missing' },
+    { label: 'Replace all shortcuts with the defaults', description: 'your own changes are lost', id: 'all' }
+  ], { title: 'Restore default shortcuts' });
+  if (!pick) return;
+  if (pick.id === 'all') {
+    const ok = await vscode.window.showWarningMessage('Replace all your shortcuts with the defaults? Your own changes will be lost.', { modal: true }, 'Replace all');
+    if (ok !== 'Replace all') return;
+    writeFile(defaults);
+    vscode.window.showInformationMessage('SQL Shortcuts: restored the default shortcuts.');
+    return;
+  }
+  if (!missing.length) {
+    vscode.window.showInformationMessage('SQL Shortcuts: all default shortcuts are already there.');
+    return;
+  }
+  const json = { ...rawJson };
+  for (const e of missing) json[e.prefix] = defaults[e.key];
+  writeFile(json);
+  vscode.window.showInformationMessage(`SQL Shortcuts: added back ${missing.length} default shortcuts.`);
+}
+
+// ---------- Expanding ----------
+
+// Rough check: is the end of `text` inside a -- comment or an open 'string'?
 function inStringOrComment(text) {
   let inString = false;
   for (let i = 0; i < text.length; i++) {
@@ -151,9 +250,9 @@ function inStringOrComment(text) {
   return inString;
 }
 
-async function fallback(trigger) {
+// What the key would normally do when there is no shortcut to expand.
+function fallback(trigger) {
   if (trigger === 'space') return vscode.commands.executeCommand('type', { text: ' ' });
-  // Tab: accept the open suggestion if the list is showing, otherwise a normal tab
   if (trigger === 'tabSuggest') return vscode.commands.executeCommand('acceptSelectedSuggestion');
   return vscode.commands.executeCommand('tab');
 }
@@ -162,54 +261,75 @@ async function expand(args) {
   const trigger = (args && args.trigger) || 'tab';
   const ed = vscode.window.activeTextEditor;
   if (!ed || ed.selections.length !== 1 || !ed.selection.isEmpty) return fallback(trigger);
-
-  const cfg = vscode.workspace.getConfiguration('sqlShortcuts');
-  if (trigger === 'space' && !cfg.get('expandOnSpace', true)) return fallback(trigger);
+  if (trigger === 'space' && !vscode.workspace.getConfiguration('sqlShortcuts').get('expandOnSpace', true)) return fallback(trigger);
 
   const pos = ed.selection.active;
   const before = ed.document.lineAt(pos.line).text.slice(0, pos.character);
 
-  // Whole word right before the cursor, not part of @var, #temp, schema.name or [name]
+  // The whole word before the cursor, but not part of @var, #temp, schema.name or [name]
   const m = /(^|[^\w@#.$\[])([A-Za-z]\w*)$/.exec(before);
   const word = m && m[2];
-  const s = word && shortcuts.get(word);
+  const s = word && shortcuts.get(word.toLowerCase());
   if (
     !s ||
-    (trigger === 'space' && cfg.get('spaceExcludes', []).includes(word)) ||
+    (trigger === 'space' && spaceExcludes().includes(word.toLowerCase())) ||
     inStringOrComment(before.slice(0, before.length - word.length))
   ) {
     return fallback(trigger);
   }
 
   await vscode.commands.executeCommand('hideSuggestWidget');
-  const range = new vscode.Range(pos.translate(0, -word.length), pos);
-  await ed.insertSnippet(new vscode.SnippetString(s.body), range);
+  await ed.insertSnippet(new vscode.SnippetString(s.body), new vscode.Range(pos.translate(0, -word.length), pos));
 }
 
-// Shows the shortcuts in the suggestion list too
+// Pick a shortcut from a searchable list and insert it at the cursor.
+async function insertShortcut() {
+  const ed = vscode.window.activeTextEditor;
+  if (!ed) {
+    vscode.window.showInformationMessage('SQL Shortcuts: open a SQL file first.');
+    return;
+  }
+  const items = getItems().map(i => ({
+    label: i.prefix,
+    description: i.description,
+    detail: i.text.replace(/\{cursor\}/g, '').replace(/\s+/g, ' ').trim(),
+    prefix: i.prefix
+  }));
+  const pick = await vscode.window.showQuickPick(items, { title: 'Insert SQL shortcut', placeHolder: 'Type to search by shortcut, description or SQL', matchOnDescription: true, matchOnDetail: true });
+  if (!pick) return;
+  await ed.insertSnippet(new vscode.SnippetString(shortcuts.get(pick.prefix.toLowerCase()).body));
+}
+
+// Also lists the shortcuts in VS Code's suggestion list.
 const completionProvider = {
   provideCompletionItems() {
-    const items = [];
-    for (const [prefix, s] of shortcuts) {
-      const item = new vscode.CompletionItem({ label: prefix, description: s.description }, vscode.CompletionItemKind.Snippet);
+    return [...shortcuts.values()].map(s => {
+      const item = new vscode.CompletionItem({ label: s.prefix, description: s.description }, vscode.CompletionItemKind.Snippet);
       item.insertText = new vscode.SnippetString(s.body);
-      item.documentation = new vscode.MarkdownString().appendCodeblock(s.body.replace(/\$\{\d+:?([^}]*)\}|\$\d+/g, '$1'), 'sql');
-      item.sortText = '0' + prefix;
-      items.push(item);
-    }
-    return items;
+      item.documentation = new vscode.MarkdownString().appendCodeblock(toFriendly(s.body).replace(/\{cursor\}/g, ''), 'sql');
+      item.sortText = '0' + s.prefix;
+      return item;
+    });
   }
 };
 
-// ---------- activate ----------
+// ---------- Activation ----------
+
+function showWelcome(context) {
+  if (context.globalState.get('welcomed')) return;
+  context.globalState.update('welcomed', true);
+  vscode.window
+    .showInformationMessage('SQL Shortcuts is ready. In a .sql file, type ssf and press Tab or Space.', 'See all shortcuts')
+    .then(pick => pick && vscode.commands.executeCommand('sqlShortcuts.edit'));
+}
 
 function activate(context) {
   init(context);
 
-  // Visible "Shortcuts" button in the bottom status bar while a SQL file is open
-  const statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 1000);
+  // "⚡ Shortcuts" button in the status bar while a SQL file is open
+  statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 1000);
   statusItem.text = '$(zap) Shortcuts';
-  statusItem.tooltip = 'SQL Shortcuts: add, edit or remove shortcuts';
+  statusItem.tooltip = `SQL Shortcuts: ${shortcuts.size} shortcuts. Click to add, edit or remove.`;
   statusItem.command = 'sqlShortcuts.edit';
   const updateStatus = () => {
     const ed = vscode.window.activeTextEditor;
@@ -217,41 +337,32 @@ function activate(context) {
     else statusItem.hide();
   };
   updateStatus();
+
+  const panelHost = { getItems, save: saveItem, remove: removeItem, openJson, importShortcuts, exportShortcuts };
+
   context.subscriptions.push(
     statusItem,
     vscode.window.onDidChangeActiveTextEditor(updateStatus),
-    vscode.workspace.onDidOpenTextDocument(updateStatus)
-  );
+    vscode.workspace.onDidOpenTextDocument(updateStatus),
 
-  context.subscriptions.push(
     vscode.commands.registerCommand('sqlShortcuts.expand', expand),
-    vscode.commands.registerCommand('sqlShortcuts.spaceExpand', () => expand({ trigger: 'space' })),
-
     vscode.commands.registerCommand('sqlShortcuts.edit', () => {
       ensureFile(context);
-      editorPanel.open(context, { getItems, save: saveItem, remove: removeItem, openJson });
+      editorPanel.open(context, panelHost);
     }),
-
+    vscode.commands.registerCommand('sqlShortcuts.insert', insertShortcut),
     vscode.commands.registerCommand('sqlShortcuts.editJson', () => {
       ensureFile(context);
       return openJson();
     }),
+    vscode.commands.registerCommand('sqlShortcuts.import', importShortcuts),
+    vscode.commands.registerCommand('sqlShortcuts.export', exportShortcuts),
+    vscode.commands.registerCommand('sqlShortcuts.restoreDefaults', () => restoreDefaults(context)),
 
-    vscode.commands.registerCommand('sqlShortcuts.reload', () => load(true)),
-
-    vscode.commands.registerCommand('sqlShortcuts.reset', async () => {
-      const ok = await vscode.window.showWarningMessage(
-        'Replace your shortcuts file with the default shortcuts? Your own changes will be lost.', { modal: true }, 'Reset');
-      if (ok !== 'Reset') return;
-      fs.copyFileSync(defaultsPath(context), filePath);
-      load(true);
-    }),
-
-    // Saving the file in VS Code reloads instantly (the watcher also catches outside edits)
+    // Saving the file inside VS Code reloads at once; the watcher catches edits made elsewhere.
     vscode.workspace.onDidSaveTextDocument(doc => {
-      if (path.resolve(doc.uri.fsPath).toLowerCase() === path.resolve(filePath).toLowerCase()) load(true);
+      if (path.resolve(doc.uri.fsPath).toLowerCase() === path.resolve(filePath).toLowerCase()) load();
     }),
-
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('sqlShortcuts.shortcutsFile')) init(context);
       else if (e.affectsConfiguration('sqlShortcuts.spaceExcludes')) editorPanel.refreshIfOpen();
@@ -259,6 +370,8 @@ function activate(context) {
 
     vscode.languages.registerCompletionItemProvider(LANGS.map(language => ({ language })), completionProvider)
   );
+
+  showWelcome(context);
 }
 
 function deactivate() {}

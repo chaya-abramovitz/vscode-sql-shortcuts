@@ -1,9 +1,12 @@
+// The visual shortcut editor: a webview with the shortcut list on the left and an edit form on the right.
+// The extension passes a `host` with getItems, save, remove, openJson, importShortcuts and exportShortcuts.
+
 const vscode = require('vscode');
 const crypto = require('crypto');
 
 let panel;
+let refresh;
 
-// host: { getItems(): [{prefix, description, text, space}], save(item, originalPrefix), remove(prefix), openJson() }
 function open(context, host) {
   if (panel) {
     panel.reveal();
@@ -16,40 +19,47 @@ function open(context, host) {
   panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'bolt.svg');
   panel.webview.html = html(crypto.randomBytes(16).toString('hex'));
 
+  refresh = (select, status) => post({ type: 'data', items: host.getItems(), select, status });
+
   panel.webview.onDidReceiveMessage(async msg => {
     try {
-      if (msg.type === 'ready') refresh();
-      else if (msg.type === 'save') {
-        const err = await host.save(msg.item, msg.originalPrefix);
-        if (err) post({ type: 'error', message: err });
-        else refresh(msg.item.prefix, 'Saved — ready to use');
-      } else if (msg.type === 'delete') {
-        const ok = await vscode.window.showWarningMessage(`Delete the shortcut "${msg.prefix}"?`, { modal: true }, 'Delete');
-        if (ok === 'Delete') {
-          await host.remove(msg.prefix);
-          refresh(null, `Deleted ${msg.prefix}`);
+      switch (msg.type) {
+        case 'ready':
+          refresh();
+          break;
+        case 'save': {
+          const err = await host.save(msg.item, msg.originalPrefix);
+          if (err) post({ type: 'error', message: err });
+          else refresh(msg.item.prefix, 'Saved. Ready to use.');
+          break;
         }
-      } else if (msg.type === 'openJson') host.openJson();
+        case 'delete': {
+          const ok = await vscode.window.showWarningMessage(`Delete the shortcut "${msg.prefix}"?`, { modal: true }, 'Delete');
+          if (ok === 'Delete') {
+            await host.remove(msg.prefix);
+            refresh(null, `Deleted "${msg.prefix}".`);
+          }
+          break;
+        }
+        case 'openJson': host.openJson(); break;
+        case 'import': await host.importShortcuts(); break;
+        case 'export': await host.exportShortcuts(); break;
+      }
     } catch (e) {
       post({ type: 'error', message: e.message });
     }
   }, null, context.subscriptions);
 
-  panel.onDidDispose(() => { panel = undefined; }, null, context.subscriptions);
-
-  function refresh(select, status) {
-    post({ type: 'data', items: host.getItems(), select, status });
-  }
-  open.refresh = refresh;
+  panel.onDidDispose(() => { panel = undefined; refresh = undefined; }, null, context.subscriptions);
 }
 
 function post(msg) {
   if (panel) panel.webview.postMessage(msg);
 }
 
-// called when the file changes outside the panel
+// Called when the shortcuts change outside the panel.
 function refreshIfOpen() {
-  if (panel && open.refresh) open.refresh();
+  if (refresh) refresh();
 }
 
 function html(nonce) {
@@ -72,6 +82,7 @@ function html(nonce) {
     border-right: 1px solid var(--vscode-panel-border, var(--vscode-widget-border, #8884));
   }
   .side-head { padding: 12px; display: flex; gap: 8px; }
+  .side-foot { padding: 10px 12px; display: flex; gap: 14px; border-top: 1px solid var(--vscode-panel-border, #8884); }
   input, textarea {
     font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background);
     border: 1px solid var(--vscode-input-border, transparent); border-radius: 2px; padding: 5px 8px; width: 100%;
@@ -79,18 +90,20 @@ function html(nonce) {
   input:focus, textarea:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
   textarea {
     font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size);
-    min-height: 200px; resize: vertical; tab-size: 4; line-height: 1.5;
+    min-height: 180px; resize: vertical; tab-size: 4; line-height: 1.5;
   }
   button {
     font: inherit; border: none; border-radius: 2px; padding: 5px 12px; cursor: pointer; white-space: nowrap;
     color: var(--vscode-button-foreground); background: var(--vscode-button-background);
   }
   button:hover { background: var(--vscode-button-hoverBackground); }
+  button:disabled { opacity: .5; cursor: default; }
   button.secondary { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
   button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
   button.danger { background: transparent; color: var(--vscode-errorForeground); border: 1px solid currentColor; }
   button.link { background: none; color: var(--vscode-textLink-foreground); padding: 0; }
   button.link:hover { text-decoration: underline; background: none; }
+  [hidden] { display: none !important; }
   .count { padding: 0 12px 6px; opacity: .7; font-size: .9em; }
   ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
   li { padding: 6px 12px; cursor: pointer; display: flex; gap: 10px; align-items: baseline; }
@@ -98,15 +111,19 @@ function html(nonce) {
   li.active { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
   li .p { font-family: var(--vscode-editor-font-family); font-weight: 600; min-width: 56px; }
   li .d { opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .empty { padding: 12px; opacity: .7; }
   main { flex: 1; overflow-y: auto; padding: 20px 28px; }
   .form { max-width: 760px; display: flex; flex-direction: column; gap: 16px; }
-  h1 { font-size: 1.4em; font-weight: 600; margin: 0; }
+  h1 { font-size: 1.4em; font-weight: 600; margin: 0; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--vscode-editorWarning-foreground, #cca700); display: none; }
+  .dirty .dot { display: inline-block; }
   label { display: block; font-weight: 600; margin-bottom: 5px; }
   .row { display: flex; gap: 16px; }
   .row > div:first-child { width: 160px; flex: none; }
   .row > div:last-child { flex: 1; }
   .hint { opacity: .75; font-size: .9em; margin-top: 5px; line-height: 1.5; }
-  code, .tok {
+  .warn { color: var(--vscode-editorWarning-foreground, #cca700); font-size: .9em; margin-top: 6px; line-height: 1.5; }
+  code {
     font-family: var(--vscode-editor-font-family);
     background: var(--vscode-textCodeBlock-background, #8882); border-radius: 3px; padding: 0 4px;
   }
@@ -114,88 +131,131 @@ function html(nonce) {
   .preview {
     font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size);
     white-space: pre-wrap; padding: 10px 12px; border-radius: 3px; line-height: 1.5; min-height: 2.5em;
-    background: var(--vscode-textCodeBlock-background, #8881);
-    border: 1px solid var(--vscode-widget-border, #8883);
+    background: var(--vscode-textCodeBlock-background, #8881); border: 1px solid var(--vscode-widget-border, #8883);
   }
   .ph { background: var(--vscode-editor-findMatchHighlightBackground, #ea05); border-radius: 2px; padding: 0 2px; }
   .cur { display: inline-block; width: 2px; height: 1.1em; vertical-align: text-bottom; background: var(--vscode-editorCursor-foreground, currentColor); }
-  .check { display: flex; gap: 8px; align-items: center; font-weight: normal; }
+  .check { display: flex; gap: 8px; align-items: center; font-weight: normal; margin: 0; }
   .check input { width: auto; }
-  .actions { display: flex; gap: 8px; align-items: center; }
+  .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .spacer { flex: 1; }
   .status { min-height: 1.4em; }
   .status.ok { color: var(--vscode-testing-iconPassed, #3a3); }
   .status.err { color: var(--vscode-errorForeground); }
+  .confirm {
+    gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 12px; border-radius: 3px; display: flex;
+    background: var(--vscode-inputValidation-warningBackground, #5a4a00); border: 1px solid var(--vscode-inputValidation-warningBorder, #b89500);
+  }
+  .keys { opacity: .6; font-size: .85em; }
   @media (max-width: 640px) { body { flex-direction: column; } .side { width: auto; height: 40vh; border-right: none; } .row { flex-direction: column; } .row > div:first-child { width: auto; } }
 </style>
 </head>
 <body>
   <aside class="side">
     <div class="side-head">
-      <input id="search" placeholder="Search shortcuts…">
-      <button id="new" title="Add a new shortcut">+ New</button>
+      <input id="search" placeholder="Search (Ctrl+F)" aria-label="Search shortcuts">
+      <button id="new" title="Add a shortcut (Ctrl+N)">+ New</button>
     </div>
     <div class="count" id="count"></div>
-    <ul id="list"></ul>
+    <ul id="list" tabindex="0" role="listbox" aria-label="Shortcuts"></ul>
+    <div class="side-foot">
+      <button class="link" id="import" title="Add shortcuts from a JSON file">Import</button>
+      <button class="link" id="export" title="Save all shortcuts to a JSON file">Export</button>
+      <button class="link" id="json" title="Open the shortcuts file as JSON">Edit as JSON</button>
+    </div>
   </aside>
   <main>
     <div class="form">
-      <h1 id="title">New shortcut</h1>
+      <h1 id="titleWrap"><span id="title">New shortcut</span><span class="dot" title="Unsaved changes"></span></h1>
+
+      <div class="confirm" id="confirm" hidden>
+        <span id="confirmText">You have unsaved changes.</span>
+        <span class="spacer"></span>
+        <button id="confirmSave">Save</button>
+        <button class="secondary" id="confirmDiscard">Discard</button>
+        <button class="secondary" id="confirmCancel">Keep editing</button>
+      </div>
+
       <div class="row">
         <div>
           <label for="prefix">Shortcut</label>
           <input id="prefix" placeholder="e.g. ssf" spellcheck="false" autocomplete="off">
-          <div class="hint">What you type, then Tab or Space.</div>
         </div>
         <div>
           <label for="desc">Description</label>
           <input id="desc" placeholder="e.g. SELECT * FROM">
         </div>
       </div>
+
       <div>
         <label for="text">Expands to</label>
         <textarea id="text" spellcheck="false" placeholder="SELECT * FROM {table}"></textarea>
         <div class="tools">
-          <button class="secondary" id="addPh" title="Insert a fill-in spot">+ Fill-in spot</button>
-          <button class="secondary" id="addCur" title="Where the cursor lands when you're done">+ Cursor ends here</button>
+          <button class="secondary" id="addPh" title="Insert a spot to fill in">+ Fill-in spot</button>
+          <button class="secondary" id="addCur" title="Where the cursor goes when you're done">+ Cursor position</button>
         </div>
         <div class="hint">
-          Put a fill-in spot in curly braces, like <code>{table}</code>. After the shortcut expands, Tab jumps from one spot to the next.
-          The same name used twice is typed once and fills in both places. <code>{cursor}</code> is where the cursor ends up.
+          <code>{table}</code> is a spot you fill in. Tab moves to the next one. A name used twice fills both places.
+          <code>{cursor}</code> is where the cursor ends up.
         </div>
       </div>
+
       <div>
         <label>Preview</label>
         <div class="preview" id="preview"></div>
       </div>
-      <label class="check"><input type="checkbox" id="space"> Also expand when I press Space (not just Tab)</label>
+
+      <div>
+        <label class="check"><input type="checkbox" id="space"> Expand on Space as well as Tab</label>
+        <div class="warn" id="wordWarn" hidden></div>
+      </div>
+
       <div class="actions">
-        <button id="save">Save</button>
+        <button id="save" title="Save (Ctrl+S)">Save</button>
         <button class="secondary" id="cancel">Discard changes</button>
-        <span class="status" id="status"></span>
+        <button class="secondary" id="dup" title="Copy this shortcut into a new one">Duplicate</button>
+        <span class="status" id="status" role="status"></span>
         <span class="spacer"></span>
         <button class="danger" id="delete">Delete</button>
       </div>
-      <div class="hint"><button class="link" id="json">Open the raw file</button> · Ctrl+S saves</div>
+      <div class="keys">Ctrl+S save · Ctrl+N new · Ctrl+F search · ↑ ↓ move through the list</div>
     </div>
   </main>
 
 <script nonce="${nonce}">
   const vscode = acquireVsCodeApi();
   const $ = id => document.getElementById(id);
-  let items = [];
-  let current = null; // original prefix of the shortcut being edited, null for new
-  let filter = '';
 
-  function esc(s) { return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  // Words often typed in SQL as keywords or aliases; expanding them on Space would get in the way.
+  const SQL_WORDS = new Set(['a','b','c','t','x','id','t1','t2','as','at','by','go','if','in','is','of','on','or','to','add','all','and','any','asc','end','for','key','not','set','top','use','case','date','desc','drop','else','exec','from','into','join','left','like','name','null','over','then','type','when','with','cte','rn','dt','ct','ex']);
+
+  let items = [];
+  let current = null;    // prefix of the shortcut being edited; null for a new one
+  let snapshot = '';     // form state when loaded, to detect unsaved changes
+  let pending = null;    // action waiting on the unsaved-changes prompt
+  let afterSave = null;  // action to run once a save started from that prompt succeeds
+  let filter = '';
+  let started = false;   // first list received
+
+  const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const formState = () => JSON.stringify([$('prefix').value, $('desc').value, $('text').value, $('space').checked]);
+  const isDirty = () => formState() !== snapshot;
+
+  function shown() {
+    const f = filter.toLowerCase();
+    return items.filter(i => !f || i.prefix.toLowerCase().includes(f) || (i.description || '').toLowerCase().includes(f) || i.text.toLowerCase().includes(f));
+  }
 
   function renderList() {
-    const f = filter.toLowerCase();
-    const shown = items.filter(i => !f || i.prefix.toLowerCase().includes(f) || (i.description || '').toLowerCase().includes(f) || i.text.toLowerCase().includes(f));
-    $('count').textContent = shown.length === items.length ? items.length + ' shortcuts' : shown.length + ' of ' + items.length;
-    $('list').innerHTML = shown.map(i =>
-      '<li data-p="' + esc(i.prefix) + '" class="' + (i.prefix === current ? 'active' : '') + '"><span class="p">' + esc(i.prefix) + '</span><span class="d">' + esc(i.description || '') + '</span></li>'
-    ).join('');
+    const list = shown();
+    $('count').textContent = list.length === items.length ? items.length + ' shortcuts' : list.length + ' of ' + items.length;
+    $('list').innerHTML = list.length
+      ? list.map(i =>
+          '<li role="option" data-p="' + esc(i.prefix) + '" class="' + (i.prefix === current ? 'active' : '') + '" aria-selected="' + (i.prefix === current) + '">' +
+          '<span class="p">' + esc(i.prefix) + '</span><span class="d">' + esc(i.description || '') + '</span></li>').join('')
+      : '<div class="empty">No shortcuts match.</div>';
+    const active = $('list').querySelector('.active');
+    if (active) active.scrollIntoView({ block: 'nearest' });
   }
 
   function renderPreview() {
@@ -205,10 +265,21 @@ function html(nonce) {
     while ((m = re.exec(t))) {
       out += esc(t.slice(last, m.index));
       last = re.lastIndex;
-      out += m[1].trim().toLowerCase() === 'cursor' ? '<span class="cur" title="cursor ends here"></span>' : '<span class="ph">' + esc(m[1]) + '</span>';
+      out += m[1].trim().toLowerCase() === 'cursor' ? '<span class="cur" title="Cursor ends here"></span>' : '<span class="ph">' + esc(m[1]) + '</span>';
     }
     out += esc(t.slice(last));
-    $('preview').innerHTML = out || '<span style="opacity:.5">Type what the shortcut expands to</span>';
+    $('preview').innerHTML = out || '<span style="opacity:.5">Type what the shortcut expands to.</span>';
+  }
+
+  function renderState() {
+    const dirty = isDirty();
+    $('titleWrap').classList.toggle('dirty', dirty);
+    $('save').disabled = !dirty;
+    $('cancel').disabled = !dirty;
+    const p = $('prefix').value.trim().toLowerCase();
+    const warn = $('space').checked && SQL_WORDS.has(p);
+    $('wordWarn').hidden = !warn;
+    if (warn) $('wordWarn').textContent = '"' + p + '" is also a common SQL word or alias, so typing it followed by a space will expand it. Consider unticking this.';
   }
 
   function load(item) {
@@ -218,11 +289,24 @@ function html(nonce) {
     $('desc').value = item ? item.description || '' : '';
     $('text').value = item ? item.text : '';
     $('space').checked = item ? item.space : true;
-    $('delete').style.visibility = item ? 'visible' : 'hidden';
+    $('delete').hidden = !item;
+    $('dup').hidden = !item;
+    snapshot = formState();
+    hideConfirm();
     setStatus('');
     renderList();
     renderPreview();
+    renderState();
   }
+
+  // Runs action now, or after asking what to do with unsaved changes.
+  function guard(action) {
+    if (!isDirty()) return action();
+    pending = action;
+    $('confirmText').textContent = 'You have unsaved changes' + (current ? ' to "' + current + '"' : '') + '.';
+    $('confirm').hidden = false;
+  }
+  function hideConfirm() { pending = null; $('confirm').hidden = true; }
 
   function setStatus(text, kind) {
     $('status').textContent = text;
@@ -231,51 +315,113 @@ function html(nonce) {
 
   function insert(text, selectFrom, selectTo) {
     const ta = $('text');
-    const s = ta.selectionStart, e = ta.selectionEnd;
-    ta.setRangeText(text, s, e, 'end');
+    const s = ta.selectionStart;
+    ta.setRangeText(text, s, ta.selectionEnd, 'end');
     if (selectFrom != null) ta.setSelectionRange(s + selectFrom, s + selectTo);
     ta.focus();
     renderPreview();
+    renderState();
   }
 
   function save() {
     const item = { prefix: $('prefix').value.trim(), description: $('desc').value.trim(), text: $('text').value, space: $('space').checked };
-    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(item.prefix)) return setStatus('The shortcut must start with a letter and contain only letters, numbers or _.', 'err');
-    if (!item.text.trim()) return setStatus('Type what the shortcut expands to.', 'err');
-    if (item.prefix !== current && items.some(i => i.prefix === item.prefix)) return setStatus('"' + item.prefix + '" already exists.', 'err');
+    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(item.prefix)) { setStatus('The shortcut must start with a letter and use only letters, numbers or _.', 'err'); $('prefix').focus(); return false; }
+    if (!item.text.trim()) { setStatus('Type what the shortcut expands to.', 'err'); $('text').focus(); return false; }
+    const lower = item.prefix.toLowerCase();
+    if (lower !== (current || '').toLowerCase() && items.some(i => i.prefix.toLowerCase() === lower)) { setStatus('"' + item.prefix + '" already exists.', 'err'); $('prefix').focus(); return false; }
     setStatus('Saving…');
     vscode.postMessage({ type: 'save', item, originalPrefix: current });
+    return true;
   }
 
+  function newShortcut() { guard(() => { load(null); $('prefix').focus(); }); }
+
+  function moveSelection(delta) {
+    const list = shown();
+    if (!list.length) return;
+    let i = list.findIndex(x => x.prefix === current);
+    i = i < 0 ? 0 : Math.max(0, Math.min(list.length - 1, i + delta));
+    if (list[i].prefix !== current) guard(() => load(list[i]));
+  }
+
+  function arrowKeys(e) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); moveSelection(e.key === 'ArrowDown' ? 1 : -1); }
+  }
+
+  // ----- events -----
   $('list').addEventListener('click', e => {
     const li = e.target.closest('li');
-    if (li) load(items.find(i => i.prefix === li.dataset.p));
+    if (li && li.dataset.p !== current) guard(() => load(items.find(i => i.prefix === li.dataset.p)));
   });
+  $('list').addEventListener('keydown', arrowKeys);
   $('search').addEventListener('input', e => { filter = e.target.value; renderList(); });
-  $('new').addEventListener('click', () => { load(null); $('prefix').focus(); });
-  $('text').addEventListener('input', renderPreview);
+  $('search').addEventListener('keydown', e => {
+    arrowKeys(e);
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const first = shown()[0];
+      if (first && first.prefix !== current) guard(() => load(first));
+    } else if (e.key === 'Escape' && filter) { filter = e.target.value = ''; renderList(); }
+  });
+  ['prefix', 'desc'].forEach(id => $(id).addEventListener('input', renderState));
+  $('space').addEventListener('change', renderState);
+  $('text').addEventListener('input', () => { renderPreview(); renderState(); });
   $('text').addEventListener('keydown', e => {
     if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); insert('\\t'); }
   });
+  $('new').addEventListener('click', newShortcut);
   $('addPh').addEventListener('click', () => insert('{name}', 1, 5));
   $('addCur').addEventListener('click', () => insert('{cursor}'));
   $('save').addEventListener('click', save);
   $('cancel').addEventListener('click', () => load(items.find(i => i.prefix === current) || null));
+  $('dup').addEventListener('click', () => {
+    const base = $('prefix').value.trim();
+    let name = base + '2';
+    for (let n = 3; items.some(i => i.prefix.toLowerCase() === name.toLowerCase()); n++) name = base + n;
+    const copy = { desc: $('desc').value, text: $('text').value, space: $('space').checked };
+    guard(() => {
+      load(null);
+      $('prefix').value = name; $('desc').value = copy.desc; $('text').value = copy.text; $('space').checked = copy.space;
+      renderPreview(); renderState();
+      $('prefix').focus(); $('prefix').select();
+      setStatus('Copy made. Give it a new shortcut name and save.', 'ok');
+    });
+  });
   $('delete').addEventListener('click', () => current && vscode.postMessage({ type: 'delete', prefix: current }));
+  $('confirmSave').addEventListener('click', () => { const next = pending; if (save()) { hideConfirm(); afterSave = next; } });
+  $('confirmDiscard').addEventListener('click', () => { const next = pending; hideConfirm(); snapshot = formState(); if (next) next(); });
+  $('confirmCancel').addEventListener('click', hideConfirm);
+  $('import').addEventListener('click', () => vscode.postMessage({ type: 'import' }));
+  $('export').addEventListener('click', () => vscode.postMessage({ type: 'export' }));
   $('json').addEventListener('click', () => vscode.postMessage({ type: 'openJson' }));
+
   document.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); save(); }
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const k = e.key.toLowerCase();
+    if (k === 's') { e.preventDefault(); if (isDirty()) save(); }
+    else if (k === 'n') { e.preventDefault(); newShortcut(); }
+    else if (k === 'f') { e.preventDefault(); $('search').focus(); $('search').select(); }
   });
 
   window.addEventListener('message', e => {
     const msg = e.data;
     if (msg.type === 'data') {
       items = msg.items;
-      const keep = msg.select !== undefined ? msg.select : current;
-      const item = items.find(i => i.prefix === keep);
-      if (item) load(item); else if (!current || msg.select === null) load(items[0] || null); else renderList();
-      if (msg.status) setStatus(msg.status, 'ok');
-    } else if (msg.type === 'error') setStatus(msg.message, 'err');
+      if (msg.select !== undefined) {
+        // reply to our own save or delete
+        load(items.find(i => i.prefix === msg.select) || items[0] || null);
+        if (msg.status) setStatus(msg.status, 'ok');
+        if (afterSave) { const next = afterSave; afterSave = null; next(); }
+      } else if (started && (isDirty() || current === null)) {
+        renderList(); // changed elsewhere; keep what's in the form
+      } else {
+        load(items.find(i => i.prefix === current) || items[0] || null);
+      }
+      started = true;
+    } else if (msg.type === 'error') {
+      afterSave = null;
+      setStatus(msg.message, 'err');
+    }
   });
 
   vscode.postMessage({ type: 'ready' });

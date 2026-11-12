@@ -1,10 +1,11 @@
 {
   "name": "sql-shortcuts",
   "displayName": "SQL Shortcuts",
-  "description": "Redgate SQL Prompt style shortcuts for T-SQL: type ssf, st100, ij, lj, cte... and press Tab or Space. Edit them in VS Code.",
-  "version": "1.5.0",
+  "description": "Type ssf and press Tab or Space to get SELECT * FROM. 60 T-SQL shortcuts, editable in a visual editor.",
+  "version": "1.6.0",
   "publisher": "chaya-local",
   "license": "MIT",
+  "icon": "media/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/chaya-abramovitz/vscode-sql-shortcuts.git"
@@ -18,9 +19,11 @@
   "keywords": [
     "sql",
     "tsql",
+    "t-sql",
+    "sql server",
     "snippets",
-    "sql prompt",
-    "sql server"
+    "shortcuts",
+    "sql prompt"
   ],
   "main": "./extension.js",
   "activationEvents": [
@@ -32,27 +35,42 @@
     "commands": [
       {
         "command": "sqlShortcuts.edit",
-        "title": "SQL Shortcuts: Edit Shortcuts",
+        "title": "Edit Shortcuts",
+        "category": "SQL Shortcuts",
         "icon": {
           "light": "media/bolt.svg",
           "dark": "media/bolt.svg"
         }
       },
       {
+        "command": "sqlShortcuts.insert",
+        "title": "Insert Shortcut…",
+        "category": "SQL Shortcuts"
+      },
+      {
+        "command": "sqlShortcuts.import",
+        "title": "Import Shortcuts…",
+        "category": "SQL Shortcuts"
+      },
+      {
+        "command": "sqlShortcuts.export",
+        "title": "Export Shortcuts…",
+        "category": "SQL Shortcuts"
+      },
+      {
+        "command": "sqlShortcuts.restoreDefaults",
+        "title": "Restore Default Shortcuts…",
+        "category": "SQL Shortcuts"
+      },
+      {
         "command": "sqlShortcuts.editJson",
-        "title": "SQL Shortcuts: Edit Shortcuts File (JSON)"
-      },
-      {
-        "command": "sqlShortcuts.reload",
-        "title": "SQL Shortcuts: Reload Shortcuts"
-      },
-      {
-        "command": "sqlShortcuts.reset",
-        "title": "SQL Shortcuts: Reset Shortcuts to Defaults"
+        "title": "Edit Shortcuts as JSON",
+        "category": "SQL Shortcuts"
       },
       {
         "command": "sqlShortcuts.expand",
-        "title": "SQL Shortcuts: Expand Shortcut"
+        "title": "Expand Shortcut",
+        "category": "SQL Shortcuts"
       }
     ],
     "menus": {
@@ -61,6 +79,19 @@
           "command": "sqlShortcuts.edit",
           "when": "editorLangId =~ /^(sql|mssql)$/",
           "group": "navigation@99"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "sqlShortcuts.insert",
+          "when": "editorLangId =~ /^(sql|mssql)$/",
+          "group": "1_modification@99"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "sqlShortcuts.expand",
+          "when": "false"
         }
       ]
     },
@@ -79,7 +110,7 @@
         "args": {
           "trigger": "tab"
         },
-        "when": "editorTextFocus && !editorReadonly && !inSnippetMode && !editorHasSelection && !suggestWidgetVisible && editorLangId =~ /^(sql|mssql)$/"
+        "when": "editorTextFocus && !editorReadonly && !editorHasSelection && !inSnippetMode && !suggestWidgetVisible && !inlineSuggestionVisible && editorLangId =~ /^(sql|mssql)$/"
       },
       {
         "key": "tab",
@@ -87,7 +118,7 @@
         "args": {
           "trigger": "tabSuggest"
         },
-        "when": "editorTextFocus && !editorReadonly && !inSnippetMode && !editorHasSelection && suggestWidgetVisible && editorLangId =~ /^(sql|mssql)$/"
+        "when": "editorTextFocus && !editorReadonly && !editorHasSelection && !inSnippetMode && suggestWidgetVisible && !inlineSuggestionVisible && editorLangId =~ /^(sql|mssql)$/"
       }
     ],
     "configuration": {
@@ -96,7 +127,7 @@
         "sqlShortcuts.expandOnSpace": {
           "type": "boolean",
           "default": true,
-          "description": "Expand a shortcut (ssf, ij, ...) when you press Space after it."
+          "description": "Expand a shortcut when you press Space after it, as well as Tab."
         },
         "sqlShortcuts.spaceExcludes": {
           "type": "array",
@@ -114,15 +145,14 @@
             "ct",
             "dt"
           ],
-          "description": "Shortcuts that only expand on Tab, not Space, because they are also common SQL words or aliases."
+          "description": "Shortcuts that expand only on Tab, because they are also common SQL words or aliases. Easier to change with the checkbox in Edit Shortcuts."
         },
         "sqlShortcuts.shortcutsFile": {
           "type": "string",
           "default": "",
-          "description": "Full path of your shortcuts JSON file. Leave empty to use the extension's own file (open it with 'SQL Shortcuts: Edit Shortcuts')."
+          "description": "Full path to your shortcuts file, e.g. to keep it in OneDrive. Leave empty to use the default location."
         }
       }
     }
-  },
-  "icon": "media/icon.png"
+  }
 }
