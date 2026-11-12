@@ -1,8 +1,8 @@
 {
   "name": "sql-shortcuts",
   "displayName": "SQL Shortcuts",
-  "description": "Type ssf and press Tab or Space to get SELECT * FROM. 60 T-SQL shortcuts, editable in a visual editor.",
-  "version": "1.6.0",
+  "description": "T-SQL shortcuts for VS Code: type ssf and press Tab or Space to get SELECT * FROM. 120+ shortcuts, editable in a visual editor.",
+  "version": "1.7.0",
   "publisher": "chaya-local",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -38,8 +38,8 @@
         "title": "Edit Shortcuts",
         "category": "SQL Shortcuts",
         "icon": {
-          "light": "media/bolt.svg",
-          "dark": "media/bolt.svg"
+          "light": "media/key-light.svg",
+          "dark": "media/key-dark.svg"
         }
       },
       {
@@ -143,7 +143,9 @@
             "rn",
             "cte",
             "ct",
-            "dt"
+            "dt",
+            "pk",
+            "fk"
           ],
           "description": "Shortcuts that expand only on Tab, because they are also common SQL words or aliases. Easier to change with the checkbox in Edit Shortcuts."
         },

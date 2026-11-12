@@ -27,10 +27,13 @@ function resolveFilePath(context) {
   return custom || path.join(context.globalStorageUri.fsPath, 'shortcuts.json');
 }
 
+let createdFresh = false; // the shortcuts file was just copied from the current defaults
+
 function ensureFile(context) {
   if (fs.existsSync(filePath)) return;
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.copyFileSync(defaultsPath(context), filePath);
+  createdFresh = true;
 }
 
 // Reads a snippet-format JSON file. Tolerates a BOM, // comment lines and trailing commas.
@@ -237,6 +240,36 @@ async function restoreDefaults(context) {
   vscode.window.showInformationMessage(`SQL Shortcuts: added back ${missing.length} default shortcuts.`);
 }
 
+// When the bundled defaults change, update the user's file: replace entries the user never edited
+// and add shortcuts that are new. Entries the user changed or deleted are left alone.
+const DEFAULTS_VERSION = 2;
+const PREVIOUS_DEFAULTS = { 1: 'defaults-v1.json' };
+
+function upgradeDefaults(context) {
+  const from = context.globalState.get('defaultsVersion', 1);
+  if (from >= DEFAULTS_VERSION) return;
+  context.globalState.update('defaultsVersion', DEFAULTS_VERSION);
+  if (createdFresh) return; // the file already has the new defaults
+
+  const old = readJsonFile(path.join(context.extensionPath, 'snippets', PREVIOUS_DEFAULTS[from]));
+  const fresh = readJsonFile(defaultsPath(context));
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const json = { ...rawJson };
+  let updated = 0, added = 0;
+  for (const [key, entry] of Object.entries(fresh)) {
+    if (key in json) {
+      if (old[key] && same(json[key], old[key]) && !same(json[key], entry)) { json[key] = entry; updated++; }
+    } else if (!(key in old) && !shortcuts.has(String(entry.prefix).toLowerCase())) {
+      json[key] = entry; added++;
+    }
+  }
+  if (!updated && !added) return;
+  writeFile(json);
+  vscode.window
+    .showInformationMessage(`SQL Shortcuts updated: ${updated} shortcuts now put each clause on its own line with no placeholder words, and ${added} new shortcuts were added. Shortcuts you changed were kept.`, 'See all shortcuts')
+    .then(pick => pick && vscode.commands.executeCommand('sqlShortcuts.edit'));
+}
+
 // ---------- Expanding ----------
 
 // Rough check: is the end of `text` inside a -- comment or an open 'string'?
@@ -319,16 +352,17 @@ function showWelcome(context) {
   if (context.globalState.get('welcomed')) return;
   context.globalState.update('welcomed', true);
   vscode.window
-    .showInformationMessage('SQL Shortcuts is ready. In a .sql file, type ssf and press Tab or Space.', 'See all shortcuts')
+    .showInformationMessage('SQL Shortcuts is ready. In a .sql file, type ssf and press Tab or Space to get SELECT * FROM.', 'See all shortcuts')
     .then(pick => pick && vscode.commands.executeCommand('sqlShortcuts.edit'));
 }
 
 function activate(context) {
   init(context);
+  upgradeDefaults(context);
 
-  // "⚡ Shortcuts" button in the status bar while a SQL file is open
+  // "Shortcuts" button in the status bar while a SQL file is open
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 1000);
-  statusItem.text = '$(zap) Shortcuts';
+  statusItem.text = '$(keyboard) Shortcuts';
   statusItem.tooltip = `SQL Shortcuts: ${shortcuts.size} shortcuts. Click to add, edit or remove.`;
   statusItem.command = 'sqlShortcuts.edit';
   const updateStatus = () => {

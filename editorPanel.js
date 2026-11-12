@@ -16,7 +16,10 @@ function open(context, host) {
     enableScripts: true,
     retainContextWhenHidden: true
   });
-  panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'bolt.svg');
+  panel.iconPath = {
+    light: vscode.Uri.joinPath(context.extensionUri, 'media', 'key-light.svg'),
+    dark: vscode.Uri.joinPath(context.extensionUri, 'media', 'key-dark.svg')
+  };
   panel.webview.html = html(crypto.randomBytes(16).toString('hex'));
 
   refresh = (select, status) => post({ type: 'data', items: host.getItems(), select, status });
@@ -134,6 +137,7 @@ function html(nonce) {
     background: var(--vscode-textCodeBlock-background, #8881); border: 1px solid var(--vscode-widget-border, #8883);
   }
   .ph { background: var(--vscode-editor-findMatchHighlightBackground, #ea05); border-radius: 2px; padding: 0 2px; }
+  .ph.empty { display: inline-block; min-width: 1.6em; height: 1.1em; vertical-align: text-bottom; font-size: .75em; text-align: center; }
   .cur { display: inline-block; width: 2px; height: 1.1em; vertical-align: text-bottom; background: var(--vscode-editorCursor-foreground, currentColor); }
   .check { display: flex; gap: 8px; align-items: center; font-weight: normal; margin: 0; }
   .check input { width: auto; }
@@ -189,14 +193,14 @@ function html(nonce) {
 
       <div>
         <label for="text">Expands to</label>
-        <textarea id="text" spellcheck="false" placeholder="SELECT * FROM {table}"></textarea>
+        <textarea id="text" spellcheck="false" placeholder="SELECT *&#10;FROM {cursor}"></textarea>
         <div class="tools">
           <button class="secondary" id="addPh" title="Insert a spot to fill in">+ Fill-in spot</button>
           <button class="secondary" id="addCur" title="Where the cursor goes when you're done">+ Cursor position</button>
         </div>
         <div class="hint">
-          <code>{table}</code> is a spot you fill in. Tab moves to the next one. A name used twice fills both places.
-          <code>{cursor}</code> is where the cursor ends up.
+          <code>{}</code> is an empty spot to type in. Tab moves to the next one. <code>{cursor}</code> is where the cursor ends up.<br>
+          Same value in two places? Use a number in both, e.g. <code>{1}</code>. <code>{text}</code> starts with that text selected.
         </div>
       </div>
 
@@ -227,7 +231,7 @@ function html(nonce) {
   const $ = id => document.getElementById(id);
 
   // Words often typed in SQL as keywords or aliases; expanding them on Space would get in the way.
-  const SQL_WORDS = new Set(['a','b','c','t','x','id','t1','t2','as','at','by','go','if','in','is','of','on','or','to','add','all','and','any','asc','end','for','key','not','set','top','use','case','date','desc','drop','else','exec','from','into','join','left','like','name','null','over','then','type','when','with','cte','rn','dt','ct','ex']);
+  const SQL_WORDS = new Set(['a','b','c','t','x','id','t1','t2','as','at','by','go','if','in','is','of','on','or','to','add','all','and','any','asc','end','for','key','not','set','top','use','case','date','desc','drop','else','exec','from','into','join','left','like','name','null','over','then','type','when','with','cte','rn','dt','ct','ex','pk','fk']);
 
   let items = [];
   let current = null;    // prefix of the shortcut being edited; null for a new one
@@ -261,11 +265,14 @@ function html(nonce) {
   function renderPreview() {
     const t = $('text').value;
     let out = '', last = 0, m;
-    const re = /\\{([^{}\\n]+)\\}/g;
+    const re = /\\{([^{}\\n]*)\\}/g;
     while ((m = re.exec(t))) {
       out += esc(t.slice(last, m.index));
       last = re.lastIndex;
-      out += m[1].trim().toLowerCase() === 'cursor' ? '<span class="cur" title="Cursor ends here"></span>' : '<span class="ph">' + esc(m[1]) + '</span>';
+      const tok = m[1].trim();
+      if (tok.toLowerCase() === 'cursor') out += '<span class="cur" title="Cursor ends here"></span>';
+      else if (tok === '' || /^[1-9]\\d*$/.test(tok)) out += '<span class="ph empty" title="Empty spot to fill in">' + esc(tok) + '</span>';
+      else out += '<span class="ph">' + esc(tok) + '</span>';
     }
     out += esc(t.slice(last));
     $('preview').innerHTML = out || '<span style="opacity:.5">Type what the shortcut expands to.</span>';
@@ -370,7 +377,7 @@ function html(nonce) {
     if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); insert('\\t'); }
   });
   $('new').addEventListener('click', newShortcut);
-  $('addPh').addEventListener('click', () => insert('{name}', 1, 5));
+  $('addPh').addEventListener('click', () => insert('{}'));
   $('addCur').addEventListener('click', () => insert('{cursor}'));
   $('save').addEventListener('click', save);
   $('cancel').addEventListener('click', () => load(items.find(i => i.prefix === current) || null));
