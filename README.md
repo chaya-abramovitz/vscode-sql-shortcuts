@@ -9,6 +9,8 @@ ssf   →   SELECT *
 
 The cursor (`|`) lands right where you type next, with nothing to delete. When a shortcut has more than one spot to fill in, press Tab to move to the next one.
 
+Using **SSMS** or **Microsoft Fabric notebooks** in the browser? The same kind of shortcuts work there through Espanso: see [espanso-fabric-sql-shortcuts](https://github.com/chaya-abramovitz/espanso-fabric-sql-shortcuts).
+
 ## Install
 
 1. **Download the installer:** [**sql-shortcuts.vsix**](https://github.com/chaya-abramovitz/vscode-sql-shortcuts/releases/latest/download/sql-shortcuts.vsix)
