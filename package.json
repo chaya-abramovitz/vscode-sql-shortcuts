@@ -2,7 +2,7 @@
   "name": "sql-shortcuts",
   "displayName": "SQL Shortcuts",
   "description": "T-SQL shortcuts for VS Code: type ssf and press Tab or Space to get SELECT * FROM. 120+ shortcuts, editable in a visual editor.",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "publisher": "chaya-local",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -214,10 +214,17 @@
         "sqlShortcuts.shortcutsFile": {
           "type": "string",
           "default": "",
-          "description": "Full path to your shortcuts file, e.g. to keep it in OneDrive. Leave empty to use the default location.",
-          "order": 9
+          "description": "Full path to your shortcuts file, e.g. to keep it in OneDrive. Leave empty for the default location. Only read from your user settings, never from a project's settings.",
+          "order": 9,
+          "scope": "machine"
         }
       }
     }
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
   }
 }

@@ -43,8 +43,12 @@ function getSettings() {
   return { values, samples: samples.filter(Boolean) };
 }
 
+const SETTING_CHOICES = { keywordCase: ['upper', 'lower', 'match'], layout: ['multiLine', 'compact'] };
+
 async function setSetting(key, value) {
-  if (!(key in SETTING_DEFAULTS)) return;
+  if (!Object.prototype.hasOwnProperty.call(SETTING_DEFAULTS, key)) return;
+  const ok = SETTING_CHOICES[key] ? SETTING_CHOICES[key].includes(value) : typeof value === 'boolean';
+  if (!ok) return;
   await vscode.workspace.getConfiguration('sqlShortcuts').update(key, value, vscode.ConfigurationTarget.Global);
 }
 
@@ -62,10 +66,17 @@ function defaultsPath(context) {
   return path.join(context.extensionPath, 'snippets', 'tsql.json');
 }
 
+// Only the user's own settings may move the shortcuts file. A project's .vscode/settings.json could
+// otherwise swap in its own shortcuts or make saves overwrite another file.
 function resolveFilePath(context) {
-  const custom = vscode.workspace.getConfiguration('sqlShortcuts').get('shortcutsFile', '').trim();
+  const info = vscode.workspace.getConfiguration('sqlShortcuts').inspect('shortcutsFile');
+  const custom = String((info && info.globalValue) || '').trim();
   return custom || path.join(context.globalStorageUri.fsPath, 'shortcuts.json');
 }
+
+const VALID_PREFIX = /^[A-Za-z][A-Za-z0-9_]{0,39}$/;
+const MAX_FILE_BYTES = 1024 * 1024;
+const MAX_BODY_CHARS = 20000;
 
 let createdFresh = false; // the shortcuts file was just copied from the current defaults
 
@@ -77,24 +88,35 @@ function ensureFile(context) {
 }
 
 // Reads a snippet-format JSON file. Tolerates a BOM, // comment lines and trailing commas.
+// Refuses very large files and drops keys that could tamper with object prototypes.
 function readJsonFile(file) {
+  if (fs.statSync(file).size > MAX_FILE_BYTES) throw new Error('file is larger than 1 MB');
   const text = fs.readFileSync(file, 'utf8')
     .replace(/^﻿/, '')
     .replace(/^\s*\/\/.*$/gm, '')
     .replace(/,(\s*[}\]])/g, '$1');
-  const json = JSON.parse(text);
+  const json = JSON.parse(text, (key, value) => (key === '__proto__' || key === 'constructor' || key === 'prototype' ? undefined : value));
   if (!json || typeof json !== 'object' || Array.isArray(json)) throw new Error('expected an object of shortcuts');
   return json;
 }
 
+// Turns VS Code snippet variables ($CLIPBOARD, ${TM_FILENAME}, ...) into plain text, so a shortcut
+// from someone else can't paste your clipboard or file details into a query. Tab stops ($1) are kept.
+function neutralizeVariables(body) {
+  return body.replace(/(\\*)\$(?=\{?[A-Za-z_])/g, (m, slashes) => (slashes.length % 2 ? m : slashes + '\\$'));
+}
+
 // Flattens file entries into { prefix, body, description } (an entry may list several prefixes).
+// Entries with an invalid name or an oversized body are skipped.
 function entriesOf(json) {
   const out = [];
   for (const [name, s] of Object.entries(json)) {
-    if (!s || !s.body) continue;
-    const prefixes = Array.isArray(s.prefix) ? s.prefix : [s.prefix || name];
-    const body = Array.isArray(s.body) ? s.body.join('\n') : String(s.body);
-    for (const p of prefixes) out.push({ key: name, prefix: String(p), body, description: s.description || String(p) });
+    if (!s || typeof s !== 'object' || !s.body) continue;
+    const prefixes = (Array.isArray(s.prefix) ? s.prefix : [s.prefix || name]).map(String).filter(p => VALID_PREFIX.test(p));
+    const body = neutralizeVariables(Array.isArray(s.body) ? s.body.map(String).join('\n') : String(s.body));
+    if (body.length > MAX_BODY_CHARS) continue;
+    const description = String(s.description || '').slice(0, 200);
+    for (const p of prefixes) out.push({ key: name, prefix: p, body, description: description || p });
   }
   return out;
 }
@@ -172,7 +194,20 @@ function toEntry(item) {
 }
 
 // Returns an error message, or null on success.
-async function saveItem(item, originalPrefix) {
+async function saveItem(raw, originalPrefix) {
+  // check what the editor screen sent, rather than trusting it
+  if (!raw || typeof raw !== 'object') return 'Nothing to save.';
+  const item = {
+    prefix: String(raw.prefix || '').trim(),
+    description: String(raw.description || '').trim().slice(0, 200),
+    text: String(raw.text || ''),
+    space: raw.space !== false
+  };
+  if (!VALID_PREFIX.test(item.prefix)) return 'The shortcut must start with a letter and use only letters, numbers or _ (up to 40).';
+  if (!item.text.trim()) return 'Type what the shortcut expands to.';
+  if (item.text.length > MAX_BODY_CHARS) return 'That is too long for a shortcut.';
+  originalPrefix = typeof originalPrefix === 'string' && originalPrefix ? originalPrefix : null;
+
   const renamed = !originalPrefix || originalPrefix.toLowerCase() !== item.prefix.toLowerCase();
   if (renamed && shortcuts.has(item.prefix.toLowerCase())) return `"${item.prefix}" already exists.`;
 
@@ -282,8 +317,8 @@ async function restoreDefaults(context) {
 
 // When the bundled defaults change, update the user's file: replace entries the user never edited
 // and add shortcuts that are new. Entries the user changed or deleted are left alone.
-const DEFAULTS_VERSION = 3;
-const PREVIOUS_DEFAULTS = { 1: 'defaults-v1.json', 2: 'defaults-v2.json' };
+const DEFAULTS_VERSION = 4;
+const PREVIOUS_DEFAULTS = { 1: 'defaults-v1.json', 2: 'defaults-v2.json', 3: 'defaults-v3.json' };
 
 function upgradeDefaults(context) {
   const from = context.globalState.get('defaultsVersion', 1);

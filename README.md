@@ -65,6 +65,7 @@ Can't remember one? Right-click in a SQL file → **Insert Shortcut…** and sea
 | Shortcut | Gives you |
 |---|---|
 | `j` | JOIN ... ON |
+| `jn` | JOIN ... ON |
 | `ij` | INNER JOIN ... ON |
 | `lj` | LEFT JOIN ... ON |
 | `rj` | RIGHT JOIN ... ON |

@@ -6,7 +6,7 @@ const shortcuts = require(path.join(__dirname, '..', 'snippets', 'tsql.json'));
 const groups = [
   ['Select', 'ssf sf st1 st10 st100 st1000 st sd scf sw sso scg dupes'],
   ['Filter', 'w2 wi wlk wb wn wnn exs nexs'],
-  ['Join and combine', 'j ij lj rj fj cj ca oa un ua'],
+  ['Join and combine', 'j jn ij lj rj fj cj ca oa un ua'],
   ['Sort, group, page', 'ob obd gb hv ofs'],
   ['Change data', 'ii is ssi up upj df mrg tt oc'],
   ['Tables and indexes', 'ct ctt dtv at alc drc pk fk dfc ci dt dv dp dfn csc'],

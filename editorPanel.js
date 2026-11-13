@@ -17,7 +17,8 @@ function open(context, host, view = 'edit') {
   }
   panel = vscode.window.createWebviewPanel('sqlShortcutsEditor', 'SQL Shortcuts', vscode.ViewColumn.Active, {
     enableScripts: true,
-    retainContextWhenHidden: true
+    retainContextWhenHidden: true,
+    localResourceRoots: [] // the page loads no files
   });
   panel.iconPath = {
     light: vscode.Uri.joinPath(context.extensionUri, 'media', 'key-light.svg'),
@@ -44,6 +45,7 @@ function open(context, host, view = 'edit') {
           break;
         }
         case 'delete': {
+          if (typeof msg.prefix !== 'string') break;
           const ok = await vscode.window.showWarningMessage(`Delete the shortcut "${msg.prefix}"?`, { modal: true }, 'Delete');
           if (ok === 'Delete') {
             await host.remove(msg.prefix);
@@ -158,6 +160,7 @@ function html(nonce) {
     background: var(--vscode-inputValidation-warningBackground, #5a4a00); border: 1px solid var(--vscode-inputValidation-warningBorder, #b89500);
   }
   .keys { opacity: .6; font-size: .85em; }
+  .muted { opacity: .5; }
   .iconbtn { display: flex; align-items: center; justify-content: center; padding: 5px 8px; }
   .iconbtn.on { background: var(--vscode-button-secondaryHoverBackground, #45494e); outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
   section { display: flex; flex-direction: column; gap: 8px; }
@@ -343,7 +346,7 @@ function html(nonce) {
   }
 
   function renderPreview() {
-    $('preview').innerHTML = previewHtml($('text').value) || '<span style="opacity:.5">Type what the shortcut expands to.</span>';
+    $('preview').innerHTML = previewHtml($('text').value) || '<span class="muted">Type what the shortcut expands to.</span>';
   }
 
   // ----- Settings page -----
